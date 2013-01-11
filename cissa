@@ -1,0 +1,97 @@
+#!/usr/bin/env ruby
+
+require 'trollop'
+
+module Cissa
+	def Cissa.run_class instance
+		if instance.instance_of? Class
+			instance = instance.new
+		end
+		if ARGV[0] == nil || ARGV[0] == "--help" || ARGV[0] == "-h"
+			help instance
+		else
+			# Create new, thawed copy of first argument, and dump it from args
+			command = ARGV.shift.dup
+			command.slice!(0,1) if command.start_with? '-'
+			methodTable = command_methods instance
+			warn "Command: #{command}"
+			method = methodTable[command]
+			if method.arity < 0
+				real_arity = ~method.arity
+			else
+				real_arity = method.arity
+			end
+
+			if method != nil || ARGV.length < real_arity
+				warn "Executing: #{method}"
+				p instance.public_send method, *ARGV
+			else
+				warn "Unrecognized command. Try #{$PROGRAM_NAME} -h for help"
+				fail "Could not recognize the specified command"
+			end
+		end
+	end
+
+	def Cissa.command_methods instance
+		list = Hash.new
+		instance.public_methods(false).each do |methodname|
+			#p methodname
+			#p methodname.to_s
+			# Add the cleaned names to a hash as keys for the symbols
+			list[methodname.to_s.gsub(/[^a-zA-Z0-9]+/, '-')] = methodname
+		end
+		list
+	end
+
+	def Cissa.help instance
+		width = 25
+		print <<ENDDOC
+USAGE:
+#{$PROGRAM_NAME} command [arguments]
+
+COMMANDS:
+NAME:#{" "*(width-5)}	ARGUMENTS:
+ENDDOC
+		command_methods(instance).each do |key, value|
+			method = instance.method(value)
+			params = method.parameters.map do |requirement, name|
+				if requirement == :req
+					name.to_s
+				else
+					"[#{name}]"
+				end
+			end
+			if params == []
+				params = '*none*' 
+			else
+				params = params.join(' ')
+			end
+			puts "\t#{key.ljust(width)}\t#{params}"
+			#arity = method.arity
+			# If the arity is < 0, the method takes at least -arity arguments
+			#if arity < 0
+				#arity = "#{-arity}+"
+			#end
+			#"#{arity}\t"
+		end
+	end
+end
+
+
+class Test
+	def meth1
+		puts "Meth 1 called"
+	end
+
+	def met_test44
+		puts "met_test44"
+	end
+	def argmeth arg1
+		puts "Argmeth is demanding.\nIt wants one argument. You said #{arg1}"
+	end
+	def paramtest(arg,arg2="default",arg3="test",*arg4)
+		puts "Arguments:|#{arg}|#{arg2}|#{arg3}|#{arg4}|"
+	end
+end
+
+Cissa.run_class Test
