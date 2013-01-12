@@ -1,34 +1,127 @@
 #!/usr/bin/env ruby
 
-require 'trollop'
-
+# Cissa converts any Ruby class into a command-line program. The methods of the
+# class are converted into commands that can be given to the executable at
+# runtime, and which run the specified method. A help screen is automatically
+# generated, and displayed if the user calles the program with -h or --help, or
+# with no command.
+#
+# Author:: Andrew Gilbert <andrewg800@gmail.com>
+# Copyright:: Copyright (c) 2013 Andrew Gilbert
+#
+# Copyright (c) 2013, Andrew Gilbert
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+#	* Redistributions of source code must retain the above copyright
+#	  notice, this list of conditions and the following disclaimer.
+#	* Redistributions in binary form must reproduce the above copyright
+#	  notice, this list of conditions and the following disclaimer in the
+#	  documentation and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
 module Cissa
 	def Cissa.run_class instance
+		# Accept Class objects and convert them to instances
 		if instance.instance_of? Class
 			instance = instance.new
 		end
+
+		# Check if the user asked for help or didn't know what to do
 		if ARGV[0] == nil || ARGV[0] == "--help" || ARGV[0] == "-h"
 			help instance
-		else
-			# Create new, thawed copy of first argument, and dump it from args
-			command = ARGV.shift.dup
-			command.slice!(0,1) if command.start_with? '-'
-			methodTable = command_methods instance
-			warn "Command: #{command}"
-			method = methodTable[command]
-			if method.arity < 0
-				real_arity = ~method.arity
-			else
-				real_arity = method.arity
-			end
+			# Exit with error, since this might be an issue
+			exit 2
+		end
 
-			if method != nil || ARGV.length < real_arity
-				warn "Executing: #{method}"
-				p instance.public_send method, *ARGV
+		# Create new, thawed copy of first argument, and dump it from args
+		command = ARGV.shift.dup
+
+		# Check if the user wanted us to eat or output chaining data
+		chaining_symbol = '+'
+
+		chaining_in = command.start_with? chaining_symbol
+		if chaining_in
+			# Strip off the chaining indicator
+			command.slice!(0,1)
+			# Grab instance off STDIN
+			instance = Marshal.load(STDIN)
+		end
+
+		chaining_out = command.end_with? chaining_symbol
+		if chaining_out
+			# Strip the chaining indicator
+			command.chomp!('+')
+			# Make sure nothing is written to stdout by accident
+			$stdout = STDERR
+		end
+
+		# Tell the user (on stderr) what command was found
+		warn "Command: #{command}"
+
+		# Get the mapping of command names to method names
+		methodTable = command_methods instance
+
+		# Get the method name that should be called from the mapping of command names to method names
+		method = methodTable[command]
+
+
+		# If there's no such method listed...
+		if method == nil
+			# Tell the user how to use the command
+			warn "Unrecognized command. Try #{$PROGRAM_NAME} -h for help"
+			help instance
+			exit 2
+			#fail "Could not recognize the specified command"
+		end
+
+		# Find the method from the instance
+		m = instance.public_method(method)
+
+		# Find the required arity
+		if m.arity < 0
+			real_arity = ~m.arity
+		else
+			real_arity = m.arity
+		end
+
+		# Check that there are enough arguments
+		if ARGV.length < real_arity
+			# Otherwise, tell the user
+			warn "Insufficient arguments: #{command} requires #{m.arity == real_arity && real_arity || "at least #{real_arity}" } argument#{real_arity!=1 && "s" || ""}"
+			help instance
+			exit 3
+		end
+
+		# Notify the user of execution
+		warn "Executing: #{method}"
+
+		# Try to execute the method safely; blow up cleanly if there are issues
+		begin
+			if chaining_out
+				# Call the method
+				m.call *ARGV
+				# Send the marshaled instance to the term
+				Marshal.dump(instance, STDOUT)
 			else
-				warn "Unrecognized command. Try #{$PROGRAM_NAME} -h for help"
-				fail "Could not recognize the specified command"
+				# Call the method and print the output as Ruby literals
+				p m.call *ARGV
 			end
+			exit 0
+		rescue
+			exit 1
 		end
 	end
 
@@ -44,13 +137,14 @@ module Cissa
 	end
 
 	def Cissa.help instance
+		# The width of the field for the name of the argument
 		width = 25
 		print <<ENDDOC
 USAGE:
 #{$PROGRAM_NAME} command [arguments]
 
 COMMANDS:
-NAME:#{" "*(width-5)}	ARGUMENTS:
+	NAME:#{" "*(width-5)}  	ARGUMENTS:
 ENDDOC
 		command_methods(instance).each do |key, value|
 			method = instance.method(value)
@@ -66,7 +160,7 @@ ENDDOC
 			else
 				params = params.join(' ')
 			end
-			puts "\t#{key.ljust(width)}\t#{params}"
+			puts "\t#{key.ljust(width)}  \t#{params}"
 			#arity = method.arity
 			# If the arity is < 0, the method takes at least -arity arguments
 			#if arity < 0
@@ -74,6 +168,16 @@ ENDDOC
 			#end
 			#"#{arity}\t"
 		end
+		print <<ENDDOC
+
+OPTIONS:
+A + may be appended to any command to supress the output of the method return
+value and cause the method's object to be serialized to stdout. A + may be
+prepended to any command to read such a serialization from stdin and use it as
+the instance on which to call the method.  This allows objects which require
+multiple method calls for usefulness to be used with Cissa, by piping the
+output of one object serialization to the input of an object deserialization.
+ENDDOC
 	end
 end
 
@@ -91,6 +195,14 @@ class Test
 	end
 	def paramtest(arg,arg2="default",arg3="test",*arg4)
 		puts "Arguments:|#{arg}|#{arg2}|#{arg3}|#{arg4}|"
+	end
+	def newtest
+		@var = 3
+		return
+	end
+	def varval
+		p @var
+		return 
 	end
 end
 
