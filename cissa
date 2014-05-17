@@ -3,7 +3,7 @@
 # Cissa converts any Ruby class into a command-line program. The methods of the
 # class are converted into commands that can be given to the executable at
 # runtime, and which run the specified method. A help screen is automatically
-# generated, and displayed if the user calles the program with -h or --help, or
+# generated, and displayed if the user calls the program with -h or --help, or
 # with no command.
 #
 # Author:: Andrew Gilbert <andrewg800@gmail.com>
@@ -32,6 +32,7 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
+
 module Cissa
 	def Cissa.run_class instance
 		# Accept Class objects and convert them to instances
@@ -128,8 +129,6 @@ module Cissa
 	def Cissa.command_methods instance
 		list = Hash.new
 		instance.public_methods(false).each do |methodname|
-			#p methodname
-			#p methodname.to_s
 			# Add the cleaned names to a hash as keys for the symbols
 			list[methodname.to_s.gsub(/[^a-zA-Z0-9]+/, '-')] = methodname
 		end
